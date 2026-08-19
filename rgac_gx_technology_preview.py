@@ -6,9 +6,25 @@
 
 RGAC-GX Technology Preview
 
-Single-file public demonstration.
+==========================
 
-This is a limited public Technology Preview.
+Single-file public technical demonstration.
+
+This preview demonstrates:
+
+- Structured relationships
+
+- Deterministic spatial representation
+
+- Complementary mapping
+
+- Local spatial-neighbor analysis
+
+- Basic graph metrics
+
+- JSON export
+
+This is a limited technology preview.
 
 It is NOT the complete RGAC-GX platform.
 
@@ -20,299 +36,529 @@ import math
 
 import time
 
+from dataclasses import dataclass, asdict
+
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from urllib.parse import urlparse
 
-APP_NAME = "RGAC-GX Technology Preview"
+# ============================================================
 
-VERSION = "1.0.0-preview"
+# Data model
 
-LEGACY_MAX = 72
+# ============================================================
 
-GRID_ORDER = 8
+@dataclass
 
-MAX_VALUE = 3 * GRID_ORDER * (GRID_ORDER + 1)
+class Node:
 
-SPATIAL_RADIUS = 2.1
+    node_id: str
 
-MAX_CANDIDATES = 8
+    x: float
 
-# ------------------------------------------------------------
+    y: float
 
-# Complementary mapping
+    value: float = 0.0
 
-# ------------------------------------------------------------
+    label: str = ""
 
-def complement(value):
+@dataclass
 
-    if not isinstance(value, int) or isinstance(value, bool):
+class Relation:
 
-        raise ValueError("value must be an integer")
+    source: str
 
-    if value < 1 or value > LEGACY_MAX:
+    target: str
 
-        raise ValueError("complementary mapping is defined for 1..72")
+    weight: float = 1.0
 
-    return 73 - value
+# ============================================================
 
-# ------------------------------------------------------------
+# RGAC-GX core
 
-# Lightweight deterministic spatial representation
+# ============================================================
 
-# ------------------------------------------------------------
+class RGACGX:
 
-def build_coordinates(order=GRID_ORDER):
+    """
 
-    coordinates = {}
+    Minimal deterministic RGAC-GX computational preview.
 
-    value = 1
+    The implementation intentionally keeps the public preview
 
-    for ring in range(1, order + 1):
+    small and understandable.
 
-        points = 6 * ring
+    """
 
-        radius = ring * 1.5
+    def __init__(self):
 
-        for index in range(points):
+        self.nodes = {}
 
-            angle = 2 * math.pi * index / points
+        self.relations = []
 
-            x = radius * math.cos(angle)
+    # --------------------------------------------------------
 
-            y = radius * math.sin(angle)
+    # Node operations
 
-            z = (ring % 3) * 0.3
+    # --------------------------------------------------------
 
-            coordinates[value] = (x, y, z)
+    def add_node(self, node_id, x, y, value=0.0, label=""):
 
-            value += 1
+        node = Node(
 
-    return coordinates
+            node_id=str(node_id),
 
-COORDINATES = build_coordinates()
+            x=float(x),
 
-def distance(a, b):
+            y=float(y),
 
-    return math.sqrt(
+            value=float(value),
 
-        sum((x - y) ** 2 for x, y in zip(a, b))
+            label=str(label),
 
-    )
+        )
 
-# ------------------------------------------------------------
+        self.nodes[node.node_id] = node
 
-# Spatial candidate analysis
+        return node
 
-# ------------------------------------------------------------
+    def add_relation(self, source, target, weight=1.0):
 
-def find_neighbors(value):
+        source = str(source)
 
-    if value not in COORDINATES:
+        target = str(target)
 
-        return []
+        if source not in self.nodes:
 
-    target = COORDINATES[value]
+            raise ValueError(f"Unknown source node: {source}")
 
-    results = []
+        if target not in self.nodes:
 
-    for other, point in COORDINATES.items():
+            raise ValueError(f"Unknown target node: {target}")
 
-        if other == value:
+        relation = Relation(
 
-            continue
+            source=source,
 
-        d = distance(target, point)
+            target=target,
 
-        if d <= SPATIAL_RADIUS:
+            weight=float(weight),
 
-            confidence = max(
+        )
 
-                0.0,
+        self.relations.append(relation)
 
-                min(1.0, 1.0 - d / 4.0)
+        return relation
 
-            )
+    # --------------------------------------------------------
 
-            results.append({
+    # Spatial calculations
 
-                "value": other,
+    # --------------------------------------------------------
+
+    def distance(self, a, b):
+
+        """
+
+        Euclidean distance between two nodes.
+
+        """
+
+        if a not in self.nodes:
+
+            raise ValueError(f"Unknown node: {a}")
+
+        if b not in self.nodes:
+
+            raise ValueError(f"Unknown node: {b}")
+
+        n1 = self.nodes[a]
+
+        n2 = self.nodes[b]
+
+        dx = n1.x - n2.x
+
+        dy = n1.y - n2.y
+
+        return math.sqrt(dx * dx + dy * dy)
+
+    def nearest_neighbors(self, node_id, limit=3):
+
+        """
+
+        Return nearest spatial neighbors.
+
+        """
+
+        if node_id not in self.nodes:
+
+            raise ValueError(f"Unknown node: {node_id}")
+
+        candidates = []
+
+        for other_id in self.nodes:
+
+            if other_id == node_id:
+
+                continue
+
+            d = self.distance(node_id, other_id)
+
+            candidates.append({
+
+                "node": other_id,
 
                 "distance": round(d, 6),
 
-                "confidence": round(confidence, 6)
-
             })
 
-    results.sort(
+        candidates.sort(key=lambda item: item["distance"])
 
-        key=lambda item: (
+        return candidates[:max(0, int(limit))]
 
-            item["distance"],
+    # --------------------------------------------------------
 
-            item["value"]
+    # Graph calculations
+
+    # --------------------------------------------------------
+
+    def degree(self, node_id):
+
+        """
+
+        Number of direct relations involving a node.
+
+        """
+
+        count = 0
+
+        for relation in self.relations:
+
+            if relation.source == node_id:
+
+                count += 1
+
+            if relation.target == node_id:
+
+                count += 1
+
+        return count
+
+    def graph_summary(self):
+
+        """
+
+        Produce deterministic graph statistics.
+
+        """
+
+        degrees = {
+
+            node_id: self.degree(node_id)
+
+            for node_id in self.nodes
+
+        }
+
+        total_weight = sum(
+
+            relation.weight
+
+            for relation in self.relations
 
         )
 
-    )
+        return {
 
-    return results[:MAX_CANDIDATES]
+            "nodes": len(self.nodes),
 
-# ------------------------------------------------------------
+            "relations": len(self.relations),
 
-# Core RGAC-GX preview analysis
+            "total_relation_weight": round(total_weight, 6),
 
-# ------------------------------------------------------------
-
-def analyze(value):
-
-    if not isinstance(value, int) or isinstance(value, bool):
-
-        raise ValueError("value must be an integer")
-
-    if value < 1 or value > MAX_VALUE:
-
-        raise ValueError(
-
-            f"value must be between 1 and {MAX_VALUE}"
-
-        )
-
-    started = time.perf_counter()
-
-    result = {
-
-        "input": value,
-
-        "version": VERSION,
-
-        "preview": True
-
-    }
-
-    # --------------------------------------------------------
-
-    # Complementary analysis
-
-    # --------------------------------------------------------
-
-    if value <= LEGACY_MAX:
-
-        opposite = complement(value)
-
-        result["mode"] = "complementary"
-
-        result["features"] = {
-
-            "value": value,
-
-            "complement": opposite,
-
-            "normalized_value": round(
-
-                value / LEGACY_MAX,
-
-                6
-
-            )
+            "degrees": degrees,
 
         }
 
-        result["candidates"] = [{
+    # --------------------------------------------------------
 
-            "value": opposite,
-
-            "confidence": 0.80,
-
-            "evidence": [
-
-                "complementary_mapping"
-
-            ]
-
-        }]
+    # Complementary mapping
 
     # --------------------------------------------------------
 
-    # Spatial analysis
+    def complementary_map(self):
 
-    # --------------------------------------------------------
+        """
 
-    else:
+        Demonstration of a complementary spatial/value mapping.
 
-        point = COORDINATES[value]
+        The transformation is deterministic and intentionally
 
-        neighbors = find_neighbors(value)
+        simple for public experimentation.
 
-        result["mode"] = "spatial-preview"
+        """
 
-        result["coordinates"] = {
+        if not self.nodes:
 
-            "x": round(point[0], 6),
+            return []
 
-            "y": round(point[1], 6),
+        values = [
 
-            "z": round(point[2], 6)
+            node.value
 
-        }
-
-        result["features"] = {
-
-            "value": value,
-
-            "neighbor_count": len(neighbors)
-
-        }
-
-        result["candidates"] = [
-
-            {
-
-                "value": item["value"],
-
-                "distance": item["distance"],
-
-                "confidence": item["confidence"],
-
-                "evidence": [
-
-                    "spatial_proximity"
-
-                ]
-
-            }
-
-            for item in neighbors
+            for node in self.nodes.values()
 
         ]
 
-    result["latency_ms"] = round(
+        minimum = min(values)
 
-        (time.perf_counter() - started) * 1000,
+        maximum = max(values)
 
-        4
+        result = []
+
+        for node in self.nodes.values():
+
+            if maximum == minimum:
+
+                normalized = 0.5
+
+            else:
+
+                normalized = (
+
+                    (node.value - minimum)
+
+                    / (maximum - minimum)
+
+                )
+
+            result.append({
+
+                "node": node.node_id,
+
+                "x": round(node.x, 6),
+
+                "y": round(node.y, 6),
+
+                "value": round(node.value, 6),
+
+                "normalized": round(normalized, 6),
+
+                "complement": round(1.0 - normalized, 6),
+
+            })
+
+        return result
+
+    # --------------------------------------------------------
+
+    # Local analysis
+
+    # --------------------------------------------------------
+
+    def local_analysis(self, node_id, radius=10.0):
+
+        """
+
+        Analyze nodes located within a spatial radius.
+
+        """
+
+        if node_id not in self.nodes:
+
+            raise ValueError(f"Unknown node: {node_id}")
+
+        result = []
+
+        for other_id in self.nodes:
+
+            if other_id == node_id:
+
+                continue
+
+            d = self.distance(node_id, other_id)
+
+            if d <= radius:
+
+                result.append({
+
+                    "node": other_id,
+
+                    "distance": round(d, 6),
+
+                    "value": round(
+
+                        self.nodes[other_id].value,
+
+                        6,
+
+                    ),
+
+                })
+
+        result.sort(key=lambda item: item["distance"])
+
+        return {
+
+            "center": node_id,
+
+            "radius": float(radius),
+
+            "neighbors": result,
+
+        }
+
+    # --------------------------------------------------------
+
+    # Complete export
+
+    # --------------------------------------------------------
+
+    def export(self):
+
+        return {
+
+            "technology": "RGAC-GX",
+
+            "preview": True,
+
+            "generated_at": int(time.time()),
+
+            "nodes": [
+
+                asdict(node)
+
+                for node in self.nodes.values()
+
+            ],
+
+            "relations": [
+
+                asdict(relation)
+
+                for relation in self.relations
+
+            ],
+
+            "summary": self.graph_summary(),
+
+            "complementary_mapping":
+
+                self.complementary_map(),
+
+        }
+
+# ============================================================
+
+# Example dataset
+
+# ============================================================
+
+def build_demo():
+
+    gx = RGACGX()
+
+    gx.add_node(
+
+        "A",
+
+        0,
+
+        0,
+
+        value=10,
+
+        label="Origin",
 
     )
 
-    return result
+    gx.add_node(
 
-# ------------------------------------------------------------
+        "B",
 
-# HTTP server
+        4,
 
-# ------------------------------------------------------------
+        2,
+
+        value=30,
+
+        label="North",
+
+    )
+
+    gx.add_node(
+
+        "C",
+
+        8,
+
+        1,
+
+        value=20,
+
+        label="East",
+
+    )
+
+    gx.add_node(
+
+        "D",
+
+        3,
+
+        7,
+
+        value=50,
+
+        label="Upper",
+
+    )
+
+    gx.add_node(
+
+        "E",
+
+        9,
+
+        6,
+
+        value=40,
+
+        label="Far",
+
+    )
+
+    gx.add_relation("A", "B", 1.0)
+
+    gx.add_relation("B", "C", 0.8)
+
+    gx.add_relation("A", "D", 1.2)
+
+    gx.add_relation("D", "E", 0.9)
+
+    gx.add_relation("C", "E", 1.1)
+
+    return gx
+
+# ============================================================
+
+# JSON API
+
+# ============================================================
+
+GX = build_demo()
 
 class RGACHandler(BaseHTTPRequestHandler):
 
-    def send_json(self, data, status=200):
+    def send_json(self, payload, status=200):
 
         body = json.dumps(
 
-            data,
+            payload,
+
+            ensure_ascii=False,
 
             indent=2,
-
-            ensure_ascii=False
 
         ).encode("utf-8")
 
@@ -322,7 +568,7 @@ class RGACHandler(BaseHTTPRequestHandler):
 
             "Content-Type",
 
-            "application/json; charset=utf-8"
+            "application/json; charset=utf-8",
 
         )
 
@@ -330,105 +576,45 @@ class RGACHandler(BaseHTTPRequestHandler):
 
             "Content-Length",
 
-            str(len(body))
+            str(len(body)),
 
         )
 
         self.end_headers()
 
         self.wfile.write(body)
-
-    def send_html(self, html):
-
-        body = html.encode("utf-8")
-
-        self.send_response(200)
-
-        self.send_header(
-
-            "Content-Type",
-
-            "text/html; charset=utf-8"
-
-        )
-
-        self.send_header(
-
-            "Content-Length",
-
-            str(len(body))
-
-        )
-
-        self.end_headers()
-
-        self.wfile.write(body)
-
-    def read_json(self):
-
-        length = int(
-
-            self.headers.get(
-
-                "Content-Length",
-
-                0
-
-            )
-
-        )
-
-        if length <= 0:
-
-            return {}
-
-        raw = self.rfile.read(length)
-
-        return json.loads(
-
-            raw.decode("utf-8")
-
-        )
-
-    # --------------------------------------------------------
-
-    # GET
-
-    # --------------------------------------------------------
 
     def do_GET(self):
 
-        path = urlparse(
-
-            self.path
-
-        ).path
+        path = urlparse(self.path).path
 
         if path == "/":
 
             self.send_json({
 
-                "name": APP_NAME,
+                "technology": "RGAC-GX",
 
-                "version": VERSION,
+                "preview": True,
 
-                "status": "ready",
+                "message":
 
-                "free_preview": True,
+                    "RGAC-GX public technology preview",
 
                 "endpoints": [
 
                     "/health",
 
-                    "/license",
+                    "/summary",
 
-                    "/docs",
+                    "/nodes",
 
-                    "/api/analyze",
+                    "/mapping",
 
-                    "/api/batch"
+                    "/neighbors/A",
 
-                ]
+                    "/export",
+
+                ],
 
             })
 
@@ -440,267 +626,119 @@ class RGACHandler(BaseHTTPRequestHandler):
 
                 "status": "ok",
 
-                "version": VERSION,
+                "technology": "RGAC-GX",
 
                 "preview": True,
 
-                "coordinate_count": len(
-
-                    COORDINATES
-
-                )
-
             })
 
             return
 
-        if path == "/license":
+        if path == "/summary":
+
+            self.send_json(
+
+                GX.graph_summary()
+
+            )
+
+            return
+
+        if path == "/nodes":
 
             self.send_json({
 
-                "type": "free-technology-preview",
+                "nodes": [
 
-                "commercial_license": False,
+                    asdict(node)
 
-                "scope": "public technical demonstration",
-
-                "version": VERSION
-
-            })
-
-            return
-
-        if path == "/docs":
-
-            self.send_html("""
-
-<!DOCTYPE html>
-
-<html>
-
-<head>
-
-<meta charset="utf-8">
-
-<title>RGAC-GX Technology Preview</title>
-
-</head>
-
-<body>
-
-<h1>RGAC-GX Technology Preview</h1>
-
-<h2>Available endpoints</h2>
-
-<ul>
-
-<li>GET /</li>
-
-<li>GET /health</li>
-
-<li>GET /license</li>
-
-<li>POST /api/analyze</li>
-
-<li>POST /api/batch</li>
-
-</ul>
-
-<h2>Example</h2>
-
-<p>POST /api/analyze</p>
-
-<pre>
-
-{
-
-  "value": 20
-
-}
-
-</pre>
-
-<p>
-
-For values 1..72 the preview demonstrates
-
-the complementary relationship:
-
-</p>
-
-<pre>
-
-73 - value
-
-</pre>
-
-<p>
-
-This is an intentionally limited public
-
-Technology Preview.
-
-</p>
-
-</body>
-
-</html>
-
-""")
-
-            return
-
-        self.send_json({
-
-            "error": "endpoint not found"
-
-        }, 404)
-
-    # --------------------------------------------------------
-
-    # POST
-
-    # --------------------------------------------------------
-
-    def do_POST(self):
-
-        path = urlparse(
-
-            self.path
-
-        ).path
-
-        try:
-
-            data = self.read_json()
-
-        except Exception:
-
-            self.send_json({
-
-                "error": "invalid JSON"
-
-            }, 400)
-
-            return
-
-        # ----------------------------------------------------
-
-        # Single analysis
-
-        # ----------------------------------------------------
-
-        if path == "/api/analyze":
-
-            if "value" not in data:
-
-                self.send_json({
-
-                    "error": "missing value"
-
-                }, 400)
-
-                return
-
-            try:
-
-                value = data["value"]
-
-                result = analyze(value)
-
-                self.send_json(result)
-
-            except ValueError as error:
-
-                self.send_json({
-
-                    "error": str(error)
-
-                }, 400)
-
-            return
-
-        # ----------------------------------------------------
-
-        # Batch analysis
-
-        # ----------------------------------------------------
-
-        if path == "/api/batch":
-
-            values = data.get("values")
-
-            if not isinstance(values, list):
-
-                self.send_json({
-
-                    "error": "values must be a list"
-
-                }, 400)
-
-                return
-
-            if len(values) == 0:
-
-                self.send_json({
-
-                    "error": "values list is empty"
-
-                }, 400)
-
-                return
-
-            if len(values) > 100:
-
-                self.send_json({
-
-                    "error": "maximum batch size is 100"
-
-                }, 400)
-
-                return
-
-            try:
-
-                results = [
-
-                    analyze(value)
-
-                    for value in values
+                    for node in GX.nodes.values()
 
                 ]
 
-                self.send_json({
-
-                    "count": len(results),
-
-                    "preview": True,
-
-                    "results": results
-
-                })
-
-            except ValueError as error:
-
-                self.send_json({
-
-                    "error": str(error)
-
-                }, 400)
+            })
 
             return
 
-        self.send_json({
+        if path == "/mapping":
 
-            "error": "endpoint not found"
+            self.send_json({
 
-        }, 404)
+                "mapping":
 
-# ------------------------------------------------------------
+                    GX.complementary_map()
 
-# Start server
+            })
 
-# ------------------------------------------------------------
+            return
+
+        if path.startswith("/neighbors/"):
+
+            node_id = path.split(
+
+                "/neighbors/",
+
+                1,
+
+            )[1]
+
+            try:
+
+                result = GX.local_analysis(
+
+                    node_id,
+
+                    radius=10,
+
+                )
+
+                self.send_json(result)
+
+            except ValueError as exc:
+
+                self.send_json(
+
+                    {"error": str(exc)},
+
+                    status=404,
+
+                )
+
+            return
+
+        if path == "/export":
+
+            self.send_json(
+
+                GX.export()
+
+            )
+
+            return
+
+        self.send_json(
+
+            {
+
+                "error": "Not found",
+
+                "path": path,
+
+            },
+
+            status=404,
+
+        )
+
+    def log_message(self, format, *args):
+
+        return
+
+# ============================================================
+
+# Local execution
+
+# ============================================================
 
 def main():
 
@@ -712,11 +750,9 @@ def main():
 
         (host, port),
 
-        RGACHandler
+        RGACHandler,
 
     )
-
-    print("")
 
     print("=" * 60)
 
@@ -724,19 +760,29 @@ def main():
 
     print("=" * 60)
 
-    print(f"Version : {VERSION}")
+    print(f"Server: http://{host}:{port}")
 
-    print(f"Server  : http://{host}:{port}")
+    print()
 
-    print(f"Docs    : http://{host}:{port}/docs")
+    print("Available endpoints:")
 
-    print("")
+    print("  /health")
+
+    print("  /summary")
+
+    print("  /nodes")
+
+    print("  /mapping")
+
+    print("  /neighbors/A")
+
+    print("  /export")
+
+    print()
 
     print("Press Ctrl+C to stop.")
 
     print("=" * 60)
-
-    print("")
 
     try:
 
@@ -744,7 +790,7 @@ def main():
 
     except KeyboardInterrupt:
 
-        print("\nStopping server...")
+        print("\nStopping RGAC-GX preview...")
 
     finally:
 
