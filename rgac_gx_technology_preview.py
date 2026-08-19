@@ -6,53 +6,27 @@
 
 RGAC-GX Technology Preview
 
-===========================
+Single-file public demonstration.
 
-A small, public demonstration of selected RGAC-GX concepts.
+This is a limited public Technology Preview.
 
-This preview intentionally provides a limited implementation for:
-
-- Complementary mapping
-
-- Deterministic spatial representation
-
-- Local spatial-neighbor analysis
-
-- Candidate generation
-
-- Confidence scoring
-
-- Batch analysis
-
-- Simple REST API
-
-This is NOT the complete RGAC-GX platform.
+It is NOT the complete RGAC-GX platform.
 
 """
+
+import json
 
 import math
 
 import time
 
-from typing import Any, Dict, List
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from fastapi import FastAPI, HTTPException
-
-from pydantic import BaseModel, Field
-
-import uvicorn
-
-# ------------------------------------------------------------
-
-# Project information
-
-# ------------------------------------------------------------
+from urllib.parse import urlparse
 
 APP_NAME = "RGAC-GX Technology Preview"
 
-VERSION = "0.1.0-preview"
-
-# Public preview limits
+VERSION = "1.0.0-preview"
 
 LEGACY_MAX = 72
 
@@ -70,93 +44,47 @@ MAX_CANDIDATES = 8
 
 # ------------------------------------------------------------
 
-def complement(value: int) -> int:
+def complement(value):
 
-    """
+    if not isinstance(value, int) or isinstance(value, bool):
 
-    Calculate the complementary mapping for values 1..72.
+        raise ValueError("value must be an integer")
 
-    Example:
+    if value < 1 or value > LEGACY_MAX:
 
-        1  -> 72
-
-        20 -> 53
-
-        72 -> 1
-
-    """
-
-    if not 1 <= value <= LEGACY_MAX:
-
-        raise ValueError(
-
-            "Complementary mapping is defined for values 1..72."
-
-        )
+        raise ValueError("complementary mapping is defined for 1..72")
 
     return 73 - value
 
 # ------------------------------------------------------------
 
-# Spatial representation
+# Lightweight deterministic spatial representation
 
 # ------------------------------------------------------------
 
-def build_coordinates(order: int = GRID_ORDER) -> Dict[int, tuple]:
+def build_coordinates(order=GRID_ORDER):
 
-    """
-
-    Build a deterministic lightweight spatial representation.
-
-    The representation uses concentric rings.
-
-    This is only a computational demonstration and should not
-
-    be interpreted as a physical or scientific geometry model.
-
-    """
-
-    coordinates: Dict[int, tuple] = {}
+    coordinates = {}
 
     value = 1
 
     for ring in range(1, order + 1):
 
-        points_in_ring = 6 * ring
+        points = 6 * ring
 
         radius = ring * 1.5
 
-        for index in range(points_in_ring):
+        for index in range(points):
 
-            angle = (
-
-                2.0
-
-                * math.pi
-
-                * index
-
-                / points_in_ring
-
-            )
+            angle = 2 * math.pi * index / points
 
             x = radius * math.cos(angle)
 
             y = radius * math.sin(angle)
 
-            # Small deterministic third dimension
-
             z = (ring % 3) * 0.3
 
-            coordinates[value] = (
-
-                x,
-
-                y,
-
-                z,
-
-            )
+            coordinates[value] = (x, y, z)
 
             value += 1
 
@@ -164,109 +92,57 @@ def build_coordinates(order: int = GRID_ORDER) -> Dict[int, tuple]:
 
 COORDINATES = build_coordinates()
 
-# ------------------------------------------------------------
-
-# Spatial distance
-
-# ------------------------------------------------------------
-
-def spatial_distance(
-
-    point_a: tuple,
-
-    point_b: tuple,
-
-) -> float:
+def distance(a, b):
 
     return math.sqrt(
 
-        sum(
-
-            (a - b) ** 2
-
-            for a, b in zip(point_a, point_b)
-
-        )
+        sum((x - y) ** 2 for x, y in zip(a, b))
 
     )
 
 # ------------------------------------------------------------
 
-# Neighbor analysis
+# Spatial candidate analysis
 
 # ------------------------------------------------------------
 
-def find_spatial_neighbors(
+def find_neighbors(value):
 
-    value: int,
-
-    radius: float = SPATIAL_RADIUS,
-
-) -> List[Dict[str, Any]]:
-
-    target = COORDINATES.get(value)
-
-    if target is None:
+    if value not in COORDINATES:
 
         return []
 
+    target = COORDINATES[value]
+
     results = []
 
-    for other_value, other_point in COORDINATES.items():
+    for other, point in COORDINATES.items():
 
-        if other_value == value:
+        if other == value:
 
             continue
 
-        distance = spatial_distance(
+        d = distance(target, point)
 
-            target,
-
-            other_point,
-
-        )
-
-        if distance <= radius:
+        if d <= SPATIAL_RADIUS:
 
             confidence = max(
 
                 0.0,
 
-                min(
-
-                    1.0,
-
-                    1.0 - (distance / 4.0),
-
-                ),
+                min(1.0, 1.0 - d / 4.0)
 
             )
 
-            results.append(
+            results.append({
 
-                {
+                "value": other,
 
-                    "value": other_value,
+                "distance": round(d, 6),
 
-                    "distance": round(
+                "confidence": round(confidence, 6)
 
-                        distance,
-
-                        6,
-
-                    ),
-
-                    "confidence": round(
-
-                        confidence,
-
-                        6,
-
-                    ),
-
-                }
-
-            )
+            })
 
     results.sort(
 
@@ -274,7 +150,7 @@ def find_spatial_neighbors(
 
             item["distance"],
 
-            item["value"],
+            item["value"]
 
         )
 
@@ -284,53 +160,45 @@ def find_spatial_neighbors(
 
 # ------------------------------------------------------------
 
-# Core analysis
+# Core RGAC-GX preview analysis
 
 # ------------------------------------------------------------
 
-def analyze_value(
+def analyze(value):
 
-    value: int,
+    if not isinstance(value, int) or isinstance(value, bool):
 
-) -> Dict[str, Any]:
-
-    if isinstance(value, bool) or not isinstance(value, int):
-
-        raise ValueError(
-
-            "value must be an integer."
-
-        )
+        raise ValueError("value must be an integer")
 
     if value < 1 or value > MAX_VALUE:
 
         raise ValueError(
 
-            f"value must be between 1 and {MAX_VALUE}."
+            f"value must be between 1 and {MAX_VALUE}"
 
         )
 
-    start_time = time.perf_counter()
+    started = time.perf_counter()
 
-    result: Dict[str, Any] = {
+    result = {
 
         "input": value,
 
         "version": VERSION,
 
-        "preview": True,
+        "preview": True
 
     }
 
     # --------------------------------------------------------
 
-    # Legacy complementary mapping
+    # Complementary analysis
 
     # --------------------------------------------------------
 
     if value <= LEGACY_MAX:
 
-        complementary_value = complement(value)
+        opposite = complement(value)
 
         result["mode"] = "complementary"
 
@@ -338,35 +206,31 @@ def analyze_value(
 
             "value": value,
 
-            "complement": complementary_value,
+            "complement": opposite,
 
             "normalized_value": round(
 
                 value / LEGACY_MAX,
 
-                6,
+                6
 
-            ),
+            )
 
         }
 
-        result["candidates"] = [
+        result["candidates"] = [{
 
-            {
+            "value": opposite,
 
-                "value": complementary_value,
+            "confidence": 0.80,
 
-                "confidence": 0.80,
+            "evidence": [
 
-                "evidence": [
+                "complementary_mapping"
 
-                    "complementary_mapping"
+            ]
 
-                ],
-
-            }
-
-        ]
+        }]
 
     # --------------------------------------------------------
 
@@ -378,11 +242,7 @@ def analyze_value(
 
         point = COORDINATES[value]
 
-        neighbors = find_spatial_neighbors(
-
-            value
-
-        )
+        neighbors = find_neighbors(value)
 
         result["mode"] = "spatial-preview"
 
@@ -392,7 +252,7 @@ def analyze_value(
 
             "y": round(point[1], 6),
 
-            "z": round(point[2], 6),
+            "z": round(point[2], 6)
 
         }
 
@@ -400,7 +260,7 @@ def analyze_value(
 
             "value": value,
 
-            "neighbor_count": len(neighbors),
+            "neighbor_count": len(neighbors)
 
         }
 
@@ -418,7 +278,7 @@ def analyze_value(
 
                     "spatial_proximity"
 
-                ],
+                ]
 
             }
 
@@ -426,19 +286,11 @@ def analyze_value(
 
         ]
 
-    elapsed = (
-
-        time.perf_counter()
-
-        - start_time
-
-    ) * 1000
-
     result["latency_ms"] = round(
 
-        elapsed,
+        (time.perf_counter() - started) * 1000,
 
-        4,
+        4
 
     )
 
@@ -446,228 +298,458 @@ def analyze_value(
 
 # ------------------------------------------------------------
 
-# API models
+# HTTP server
 
 # ------------------------------------------------------------
 
-class AnalyzeRequest(BaseModel):
+class RGACHandler(BaseHTTPRequestHandler):
 
-    value: int = Field(
+    def send_json(self, data, status=200):
 
-        ...,
+        body = json.dumps(
 
-        ge=1,
+            data,
 
-        le=MAX_VALUE,
+            indent=2,
 
-        description="Integer value to analyze.",
+            ensure_ascii=False
+
+        ).encode("utf-8")
+
+        self.send_response(status)
+
+        self.send_header(
+
+            "Content-Type",
+
+            "application/json; charset=utf-8"
+
+        )
+
+        self.send_header(
+
+            "Content-Length",
+
+            str(len(body))
+
+        )
+
+        self.end_headers()
+
+        self.wfile.write(body)
+
+    def send_html(self, html):
+
+        body = html.encode("utf-8")
+
+        self.send_response(200)
+
+        self.send_header(
+
+            "Content-Type",
+
+            "text/html; charset=utf-8"
+
+        )
+
+        self.send_header(
+
+            "Content-Length",
+
+            str(len(body))
+
+        )
+
+        self.end_headers()
+
+        self.wfile.write(body)
+
+    def read_json(self):
+
+        length = int(
+
+            self.headers.get(
+
+                "Content-Length",
+
+                0
+
+            )
+
+        )
+
+        if length <= 0:
+
+            return {}
+
+        raw = self.rfile.read(length)
+
+        return json.loads(
+
+            raw.decode("utf-8")
+
+        )
+
+    # --------------------------------------------------------
+
+    # GET
+
+    # --------------------------------------------------------
+
+    def do_GET(self):
+
+        path = urlparse(
+
+            self.path
+
+        ).path
+
+        if path == "/":
+
+            self.send_json({
+
+                "name": APP_NAME,
+
+                "version": VERSION,
+
+                "status": "ready",
+
+                "free_preview": True,
+
+                "endpoints": [
+
+                    "/health",
+
+                    "/license",
+
+                    "/docs",
+
+                    "/api/analyze",
+
+                    "/api/batch"
+
+                ]
+
+            })
+
+            return
+
+        if path == "/health":
+
+            self.send_json({
+
+                "status": "ok",
+
+                "version": VERSION,
+
+                "preview": True,
+
+                "coordinate_count": len(
+
+                    COORDINATES
+
+                )
+
+            })
+
+            return
+
+        if path == "/license":
+
+            self.send_json({
+
+                "type": "free-technology-preview",
+
+                "commercial_license": False,
+
+                "scope": "public technical demonstration",
+
+                "version": VERSION
+
+            })
+
+            return
+
+        if path == "/docs":
+
+            self.send_html("""
+
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="utf-8">
+
+<title>RGAC-GX Technology Preview</title>
+
+</head>
+
+<body>
+
+<h1>RGAC-GX Technology Preview</h1>
+
+<h2>Available endpoints</h2>
+
+<ul>
+
+<li>GET /</li>
+
+<li>GET /health</li>
+
+<li>GET /license</li>
+
+<li>POST /api/analyze</li>
+
+<li>POST /api/batch</li>
+
+</ul>
+
+<h2>Example</h2>
+
+<p>POST /api/analyze</p>
+
+<pre>
+
+{
+
+  "value": 20
+
+}
+
+</pre>
+
+<p>
+
+For values 1..72 the preview demonstrates
+
+the complementary relationship:
+
+</p>
+
+<pre>
+
+73 - value
+
+</pre>
+
+<p>
+
+This is an intentionally limited public
+
+Technology Preview.
+
+</p>
+
+</body>
+
+</html>
+
+""")
+
+            return
+
+        self.send_json({
+
+            "error": "endpoint not found"
+
+        }, 404)
+
+    # --------------------------------------------------------
+
+    # POST
+
+    # --------------------------------------------------------
+
+    def do_POST(self):
+
+        path = urlparse(
+
+            self.path
+
+        ).path
+
+        try:
+
+            data = self.read_json()
+
+        except Exception:
+
+            self.send_json({
+
+                "error": "invalid JSON"
+
+            }, 400)
+
+            return
+
+        # ----------------------------------------------------
+
+        # Single analysis
+
+        # ----------------------------------------------------
+
+        if path == "/api/analyze":
+
+            if "value" not in data:
+
+                self.send_json({
+
+                    "error": "missing value"
+
+                }, 400)
+
+                return
+
+            try:
+
+                value = data["value"]
+
+                result = analyze(value)
+
+                self.send_json(result)
+
+            except ValueError as error:
+
+                self.send_json({
+
+                    "error": str(error)
+
+                }, 400)
+
+            return
+
+        # ----------------------------------------------------
+
+        # Batch analysis
+
+        # ----------------------------------------------------
+
+        if path == "/api/batch":
+
+            values = data.get("values")
+
+            if not isinstance(values, list):
+
+                self.send_json({
+
+                    "error": "values must be a list"
+
+                }, 400)
+
+                return
+
+            if len(values) == 0:
+
+                self.send_json({
+
+                    "error": "values list is empty"
+
+                }, 400)
+
+                return
+
+            if len(values) > 100:
+
+                self.send_json({
+
+                    "error": "maximum batch size is 100"
+
+                }, 400)
+
+                return
+
+            try:
+
+                results = [
+
+                    analyze(value)
+
+                    for value in values
+
+                ]
+
+                self.send_json({
+
+                    "count": len(results),
+
+                    "preview": True,
+
+                    "results": results
+
+                })
+
+            except ValueError as error:
+
+                self.send_json({
+
+                    "error": str(error)
+
+                }, 400)
+
+            return
+
+        self.send_json({
+
+            "error": "endpoint not found"
+
+        }, 404)
+
+# ------------------------------------------------------------
+
+# Start server
+
+# ------------------------------------------------------------
+
+def main():
+
+    host = "127.0.0.1"
+
+    port = 8080
+
+    server = HTTPServer(
+
+        (host, port),
+
+        RGACHandler
 
     )
 
-class BatchRequest(BaseModel):
+    print("")
 
-    values: List[int] = Field(
+    print("=" * 60)
 
-        ...,
+    print("RGAC-GX Technology Preview")
 
-        min_length=1,
+    print("=" * 60)
 
-        max_length=100,
+    print(f"Version : {VERSION}")
 
-        description="List of values to analyze.",
+    print(f"Server  : http://{host}:{port}")
 
-    )
+    print(f"Docs    : http://{host}:{port}/docs")
 
-# ------------------------------------------------------------
+    print("")
 
-# FastAPI application
+    print("Press Ctrl+C to stop.")
 
-# ------------------------------------------------------------
+    print("=" * 60)
 
-app = FastAPI(
-
-    title=APP_NAME,
-
-    version=VERSION,
-
-    description=(
-
-        "A small and intentionally limited public "
-
-        "demonstration of selected RGAC-GX concepts."
-
-    ),
-
-)
-
-# ------------------------------------------------------------
-
-# Root endpoint
-
-# ------------------------------------------------------------
-
-@app.get("/")
-
-async def root() -> Dict[str, Any]:
-
-    return {
-
-        "name": APP_NAME,
-
-        "version": VERSION,
-
-        "status": "ready",
-
-        "free_preview": True,
-
-        "documentation": "/docs",
-
-        "health": "/health",
-
-        "max_value": MAX_VALUE,
-
-    }
-
-# ------------------------------------------------------------
-
-# Health endpoint
-
-# ------------------------------------------------------------
-
-@app.get("/health")
-
-async def health() -> Dict[str, Any]:
-
-    return {
-
-        "status": "ok",
-
-        "version": VERSION,
-
-        "preview": True,
-
-        "coordinate_count": len(
-
-            COORDINATES
-
-        ),
-
-    }
-
-# ------------------------------------------------------------
-
-# Public scope endpoint
-
-# ------------------------------------------------------------
-
-@app.get("/license")
-
-async def license_info() -> Dict[str, Any]:
-
-    return {
-
-        "type": "free-technology-preview",
-
-        "commercial_license": False,
-
-        "scope": "public technical demonstration",
-
-        "version": VERSION,
-
-    }
-
-# ------------------------------------------------------------
-
-# Single-value analysis
-
-# ------------------------------------------------------------
-
-@app.post("/api/analyze")
-
-async def analyze(
-
-    request: AnalyzeRequest,
-
-) -> Dict[str, Any]:
+    print("")
 
     try:
 
-        return analyze_value(
+        server.serve_forever()
 
-            request.value
+    except KeyboardInterrupt:
 
-        )
+        print("\nStopping server...")
 
-    except ValueError as error:
+    finally:
 
-        raise HTTPException(
-
-            status_code=400,
-
-            detail=str(error),
-
-        )
-
-# ------------------------------------------------------------
-
-# Batch analysis
-
-# ------------------------------------------------------------
-
-@app.post("/api/batch")
-
-async def batch(
-
-    request: BatchRequest,
-
-) -> Dict[str, Any]:
-
-    try:
-
-        results = [
-
-            analyze_value(value)
-
-            for value in request.values
-
-        ]
-
-        return {
-
-            "count": len(results),
-
-            "preview": True,
-
-            "results": results,
-
-        }
-
-    except ValueError as error:
-
-        raise HTTPException(
-
-            status_code=400,
-
-            detail=str(error),
-
-        )
-
-# ------------------------------------------------------------
-
-# Local execution
-
-# ------------------------------------------------------------
+        server.server_close()
 
 if __name__ == "__main__":
 
-    uvicorn.run(
-
-        "rgac_gx_technology_preview:app",
-
-        host="127.0.0.1",
-
-        port=8080,
-
-        reload=False,
-
-    )
+    main()
